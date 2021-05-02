@@ -11,7 +11,6 @@ For example [TLIN](https://www.ti.com/store/ti/en/p/product/?p=TLIN2029DRQ1&utm_
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "EndlessLoop"
-#define BAUD 9600
 
 int main()
 {
