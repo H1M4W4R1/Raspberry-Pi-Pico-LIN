@@ -143,10 +143,10 @@ void lin_send_header(lin_frame* frame)
     uint8_t id = lin_calculate_parity(frame->id);
 
     // Break
-    gpio_set_function(0, GPIO_FUNC_SIO);
-    gpio_put(0, false); // Send 0 for 14 TLIN
+    gpio_set_function(txPin, GPIO_FUNC_SIO);
+    gpio_put(txPin, false); // Send 0 for 14 TLIN
     sleep_us(LIN_BREAK_WIDTH * lin_delay);
-    gpio_put(0, true);
+    gpio_put(txPin, true);
     sleep_us(lin_delay);
 
     // Frame
