@@ -122,6 +122,3 @@ int main()
 #pragma clang diagnostic pop
 ```
 
-# Known bugs
-1. Slave cannot read data from master... Will be implemented using timeout.
-2. Sometimes UART gets bugged and drops some data from slave - thus data being read is bugged. (eg. checksum is as data and data as checksum).
