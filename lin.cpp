@@ -213,11 +213,9 @@ bool lin_read_frame_blocking(lin_frame *frame) {
 
     frame->id = id;
 
-    // Wait for 16 ticks
-    sleep_ms(lin_delay * 16);
-
     // Read data (if sent proper frame)
-    if (uart_is_readable(uart)) {
+    if(uart_is_readable_within_us(uart, 16 * lin_delay)) {
+
         uart_read_blocking(uart, frame->data, lin_get_data_size(id));
         uart_read_blocking(uart, &frame->checksum, 1);
     }
