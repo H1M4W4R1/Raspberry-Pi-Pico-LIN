@@ -113,19 +113,28 @@ void lin_send_frame(lin_frame* frame)
     uint8_t id = lin_calculate_parity(frame->id);
 
     // Break
-    gpio_set_function(0, GPIO_FUNC_SIO);
-    gpio_put(0, false); // Send 0 for 14 TLIN
+    gpio_set_function(txPin, GPIO_FUNC_SIO);
+    gpio_put(txPin, false); // Send 0 for 14 TLIN
     sleep_us(LIN_BREAK_WIDTH * lin_delay);
-    gpio_put(0, true);
+
+    gpio_put(txPin, true);
     sleep_us(lin_delay);
 
-    // Frame
-    gpio_set_function(0, GPIO_FUNC_UART);
-    uart_write_blocking(uart, &lin_sync,1);
-    uart_write_blocking(uart, &id,1);
-    uart_write_blocking(uart, frame->data, frame->length);
     uint8_t checksum = calculate_checksum(id, frame->data, frame->length, frame->enhanced_checksum);
-    uart_write_blocking(uart, &checksum,1);
+
+    gpio_set_function(txPin, GPIO_FUNC_UART);
+
+    // Prepare data array
+    uint8_t data[12];
+    data[0] = lin_sync;
+    data[1] = id;
+    for(int q = 2; q < 2 + frame->length; q++){
+        data[q] = frame->data[q - 2];
+    }
+    data[2 + frame->length] = checksum;
+
+    // Send
+    uart_write_blocking(uart, data, frame->length + 3);
 }
 
 void lin_send_header(lin_frame* frame)
@@ -141,15 +150,22 @@ void lin_send_header(lin_frame* frame)
     sleep_us(lin_delay);
 
     // Frame
-    gpio_set_function(0, GPIO_FUNC_UART);
-    uart_write_blocking(uart, &lin_sync,1);
-    uart_write_blocking(uart, &id,1);
+    gpio_set_function(txPin, GPIO_FUNC_UART);
 
-    // Read response data
-    uart_read_blocking(uart, frame->data, frame->length);
+    // Prepare data
+    uint8_t data[2] = {lin_sync, id};
 
-    // Read checksum
-    uart_read_blocking(uart, &(frame->checksum), 1);
+    // Send
+    uart_write_blocking(uart, data,2);
+
+    if(uart_is_readable_within_us(uart, 16 * lin_delay)) {
+
+        // Read response data
+        uart_read_blocking(uart, frame->data, frame->length);
+
+        // Read checksum
+        uart_read_blocking(uart, &(frame->checksum), 1);
+    }
 }
 
 void lin_send_response(lin_frame* frame)
@@ -158,56 +174,55 @@ void lin_send_response(lin_frame* frame)
     uint8_t id = lin_calculate_parity(frame->id);
 
     // Update settings
-    gpio_set_function(0, GPIO_FUNC_UART);
+    gpio_set_function(txPin, GPIO_FUNC_UART);
+    uint8_t checksum = calculate_checksum(id, frame->data, frame->length, frame->enhanced_checksum);
+
+    uint8_t data_size =lin_get_data_size(id);
+
+    // Build
+    uint8_t data[9];
+    for(int q = 0; q < data_size; q++)
+        data[q] = frame->data[q];
+    data[data_size] = checksum;
 
     // Send response
-    uart_write_blocking(uart, frame->data, frame->length);
-    uint8_t checksum = calculate_checksum(id, frame->data, frame->length, frame->enhanced_checksum);
-    uart_write_blocking(uart, &checksum,1);
+    uart_write_blocking(uart, data, frame->length + 1);
 }
 
-void lin_read_frame_blocking(lin_frame *frame)
-{
+bool lin_read_frame_blocking(lin_frame *frame) {
     // Get timing
-    uint64_t lin_delay = get_lin_time(); // Timing
-    gpio_set_function(rxPin, GPIO_FUNC_SIO);
+    uint64_t lin_delay = get_lin_time();
 
-    uint8_t counter = 0;
 
-    // Check gpio pin
-    while(true) {
-        // Check RX pin for BREAK (13 units by default)
-        if (!gpio_get(rxPin)) {
-            counter++; // Add value to counter
-            sleep_us(lin_delay); // Wait for next bit
-            if (counter >= LIN_BREAK_WIDTH) { // Wait for counter
-                break;
-            }
-        }
-        else{
-            counter = 0; // If went high then reset
-        }
-    }
-    gpio_put(rxPin, true);
-
-    // Switch to UART
     gpio_set_function(rxPin, GPIO_FUNC_UART);
-
-    // Temporary variables
     uint8_t sync;
     uint8_t id;
-    uint8_t delay;
 
-    // Read sync byte
-    uart_read_blocking(uart, &delay, 1);
+    // Break catcher
     uart_read_blocking(uart, &sync, 1);
-    // Read protected ID
+    if(sync == 0x55) goto skip_sync;
+
+    if(sync != 0x0) return false;
+    // Invalid SYNC
+    uart_read_blocking(uart, &sync, 1);
+    if (sync != 0x55) return false;
+
+    skip_sync:
+
     uart_read_blocking(uart, &id, 1);
 
-    // Set frame params
     frame->id = id;
 
-    // Header read complete
-}
+    // Wait for 16 ticks
+    sleep_ms(lin_delay * 16);
 
+    // Read data (if sent proper frame)
+    if (uart_is_readable(uart)) {
+        uart_read_blocking(uart, frame->data, lin_get_data_size(id));
+        uart_read_blocking(uart, &frame->checksum, 1);
+    }
+
+    return true;
+
+}
 
