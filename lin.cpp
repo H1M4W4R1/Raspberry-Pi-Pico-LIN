@@ -34,7 +34,7 @@ void lin_initialize(uart_inst_t *uartInst, uint tx, uint rx, uint baudRate) {
 
     // As UART
     gpio_set_function(tx, GPIO_FUNC_UART);
-    gpio_set_function(rx, GPIO_FUNC_UART);
+    gpio_set_function(rx, GPIO_FUNC_SIO);
 
     // Set PIN values
     txPin = tx;
@@ -157,7 +157,7 @@ void lin_send_header(lin_frame* frame)
 
     // Send
     uart_write_blocking(uart, data,2);
-
+    gpio_set_function(rxPin, GPIO_FUNC_UART);
     if(uart_is_readable_within_us(uart, 16 * lin_delay)) {
 
         // Read response data
@@ -166,6 +166,7 @@ void lin_send_header(lin_frame* frame)
         // Read checksum
         uart_read_blocking(uart, &(frame->checksum), 1);
     }
+    gpio_set_function(rxPin, GPIO_FUNC_SIO);
 }
 
 void lin_send_response(lin_frame* frame)
@@ -192,20 +193,26 @@ void lin_send_response(lin_frame* frame)
 bool lin_read_frame_blocking(lin_frame *frame) {
     // Get timing
     uint64_t lin_delay = get_lin_time();
-
-
     gpio_set_function(rxPin, GPIO_FUNC_UART);
     uint8_t sync;
     uint8_t id;
 
     // Break catcher
     uart_read_blocking(uart, &sync, 1);
-    if(sync == 0x55) goto skip_sync;
+    if(sync == 0x55){
+        goto skip_sync;
+    }
 
-    if(sync != 0x0) return false;
+    if(sync != 0x0){
+        gpio_set_function(rxPin, GPIO_FUNC_SIO);
+        return false;
+    }
     // Invalid SYNC
     uart_read_blocking(uart, &sync, 1);
-    if (sync != 0x55) return false;
+    if (sync != 0x55){
+        gpio_set_function(rxPin, GPIO_FUNC_SIO);
+        return false;
+    }
 
     skip_sync:
 
@@ -219,6 +226,8 @@ bool lin_read_frame_blocking(lin_frame *frame) {
         uart_read_blocking(uart, frame->data, lin_get_data_size(id));
         uart_read_blocking(uart, &frame->checksum, 1);
     }
+
+    gpio_set_function(rxPin, GPIO_FUNC_SIO);
 
     return true;
 
