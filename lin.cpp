@@ -157,16 +157,7 @@ void lin_send_header(lin_frame* frame)
 
     // Send
     uart_write_blocking(uart, data,2);
-    gpio_set_function(rxPin, GPIO_FUNC_UART);
-    if(uart_is_readable_within_us(uart, 16 * lin_delay)) {
-
-        // Read response data
-        uart_read_blocking(uart, frame->data, frame->length);
-
-        // Read checksum
-        uart_read_blocking(uart, &(frame->checksum), 1);
-    }
-    gpio_set_function(rxPin, GPIO_FUNC_SIO);
+    lin_read_frame_blocking(frame);
 }
 
 void lin_send_response(lin_frame* frame)
