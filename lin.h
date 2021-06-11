@@ -21,7 +21,7 @@ struct lin_frame{
 void lin_initialize(uart_inst_t* uartInst, uint tx, uint rx, uint baudRate);
 void lin_send_frame(lin_frame* frame);
 void lin_send_response(lin_frame* response);
-void lin_read_frame_blocking(lin_frame* frame);
+bool lin_read_frame_blocking(lin_frame* frame);
 void lin_send_header(lin_frame* frame);
 uint8_t lin_get_data_size(uint8_t pid);
 uint8_t lin_calculate_parity(uint8_t id);
