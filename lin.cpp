@@ -14,6 +14,8 @@ uint rxPin;
 
 uint8_t lin_sync = LIN_SYNC;
 uart_inst_t* uart;
+bool freeHeader = false;
+alarm_id_t alarmId;
 
 uint64_t get_lin_time(){
     double micros_d = (double) 1000000 / baud;
@@ -55,15 +57,16 @@ uint8_t calculate_checksum(uint8_t id, uint8_t* data, uint8_t len, bool enhanced
     uint16_t sum = 0;
     for(int q = 0; q < len; q++){
         sum += data[q];
-        if(sum > 256)
-            sum -= 255;
     }
+
     // IF LIN2, then also consider ID
     if(enhanced_checksum) {
         sum += id;
-        if (sum > 256)
-            sum -= 255;
     }
+
+    // Subtract sum
+    while(sum >= 256)
+        sum -= 255;
 
     // Invert sum
     uint8_t sum8 = (uint8_t) sum;
@@ -137,8 +140,23 @@ void lin_send_frame(lin_frame* frame)
     uart_write_blocking(uart, data, frame->length + 3);
 }
 
+int64_t lin_not_received(alarm_id_t id, void *user_data)
+{
+    if(alarmId == id) {
+        // Free header
+        freeHeader = true;
+
+        return 0x0;
+    }
+    else{
+        return 0x1;
+    }
+}
+
 void lin_send_header(lin_frame* frame)
 {
+    freeHeader = false;
+
     uint64_t lin_delay = get_lin_time();
     uint8_t id = lin_calculate_parity(frame->id);
 
@@ -157,7 +175,19 @@ void lin_send_header(lin_frame* frame)
 
     // Send
     uart_write_blocking(uart, data,2);
-    lin_read_frame_blocking(frame);
+
+    // Check if is readable
+    alarmId = add_alarm_in_us(get_lin_time() * 100, lin_not_received, nullptr, false);
+
+    // Try to read frame
+    if(!lin_read_frame_blocking(frame))
+    {
+        for(uint8_t q = 0; q < lin_get_data_size(id); q++)
+            frame->data[q] = 0x0;
+    }
+
+    // Cancel alarm
+    cancel_alarm(alarmId);
 }
 
 void lin_send_response(lin_frame* frame)
@@ -169,7 +199,7 @@ void lin_send_response(lin_frame* frame)
     gpio_set_function(txPin, GPIO_FUNC_UART);
     uint8_t checksum = calculate_checksum(id, frame->data, frame->length, frame->enhanced_checksum);
 
-    uint8_t data_size =lin_get_data_size(id);
+    uint8_t data_size = lin_get_data_size(id);
 
     // Build
     uint8_t data[9];
@@ -188,6 +218,12 @@ bool lin_read_frame_blocking(lin_frame *frame) {
     uint8_t sync;
     uint8_t id;
 
+    // Check if can be freed
+    while(!uart_is_readable(uart)){
+        if(freeHeader)
+            return false;
+    }
+
     // Break catcher
     uart_read_blocking(uart, &sync, 1);
     if(sync == 0x55){
@@ -198,6 +234,13 @@ bool lin_read_frame_blocking(lin_frame *frame) {
         gpio_set_function(rxPin, GPIO_FUNC_SIO);
         return false;
     }
+
+    // Check if can be freed
+    while(!uart_is_readable(uart)){
+        if(freeHeader)
+            return false;
+    }
+
     // Invalid SYNC
     uart_read_blocking(uart, &sync, 1);
     if (sync != 0x55){
@@ -207,13 +250,19 @@ bool lin_read_frame_blocking(lin_frame *frame) {
 
     skip_sync:
 
+    // Check if can be freed
+    while(!uart_is_readable(uart)){
+        if(freeHeader)
+            return false;
+    }
+
     uart_read_blocking(uart, &id, 1);
 
     frame->id = id;
 
     // Read data (if sent proper frame)
-    if(uart_is_readable_within_us(uart, 16 * lin_delay)) {
-
+    if(uart_is_readable_within_us(uart, 16 * lin_delay))
+    {
         uart_read_blocking(uart, frame->data, lin_get_data_size(id));
         uart_read_blocking(uart, &frame->checksum, 1);
     }
