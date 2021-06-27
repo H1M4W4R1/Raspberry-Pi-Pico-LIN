@@ -177,7 +177,7 @@ void lin_send_header(lin_frame* frame)
     uart_write_blocking(uart, data,2);
 
     // Check if is readable
-    alarmId = add_alarm_in_us(get_lin_time() * 100, lin_not_received, nullptr, false);
+    alarmId = add_alarm_in_us(get_lin_time() * 512, lin_not_received, nullptr, false);
 
     // Try to read frame
     if(!lin_read_frame_blocking(frame))
